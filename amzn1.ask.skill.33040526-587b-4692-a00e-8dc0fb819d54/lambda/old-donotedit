@@ -1,0 +1,438 @@
+/* *
+ * This sample demonstrates handling intents from an Alexa skill using the Alexa Skills Kit SDK (v2) and connecting it to the openAI LLM GPT3.5-turbo
+ * Please visit https://alexa.design/cookbook for additional examples on implementing slots, dialog management,
+ * session persistence, api calls, and more.
+ * Please visit https://platform.openai.com/docs/guides/gpt for understanding how to use GPT
+ * */
+const Alexa = require('ask-sdk-core');
+const {Configuration, OpenAIApi} = require('openai');
+var gptTurboMessage =  [{role:"system", content: "As an AI voice assistant based on ChatGPT, your primary purpose is to engage in conversations with users about travel plans."}]; //Try to be brief when possible.
+const axios = require('axios');
+const fs = require("fs");
+const food = require('./food')
+const art = require('./art')
+
+const intro_hi = ["Hello! ", "Hi! ", "Hey! ", "Welcome! "]
+
+const intro = ['How can I assist you today?', 'What do you wanna know?', 'What questions do you have?', 'What would you like to know?'  ];
+
+const other = ['Any other questions for me?', 'What else can I help you with?', 'Anything else you\'d like to know?', 'Anything else?'];
+
+const bye = ["Goodbye!", "Untill next time!", "Take care!", "Stay safe!", "Bye!", "Have a good one!"];
+
+const fillers = ["checking that for you!", "searching!", "looking up!", "still fetching!", "Almost there!", "let me check!", "I'm on it!", "Hold on!", "still looking!"];
+
+var location;
+
+const LaunchRequestHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'LaunchRequest';
+    },
+    handle(handlerInput) {
+        const fs = require("fs");
+        const index = Math.floor(Math.random() * 3);
+        const index_hi = Math.floor(Math.random() * 3);
+        const index2 = Math.floor(Math.random() * 3);
+        const speakOutput = intro_hi[index_hi] + "Welcome to ActAI, an Alexa-powered activity planning assistant. I can help you generate ideas for what to do in your freetime. Where are you currently located?"
+        const reprompting = intro[index2];
+        return handlerInput.responseBuilder
+            .speak(speakOutput)
+            .reprompt(reprompting)
+            .getResponse();
+    }
+};
+
+
+const TourismIntentHandler = {
+  canHandle(handlerInput) {
+    return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+      && Alexa.getIntentName(handlerInput.requestEnvelope) === 'TourismIntent';
+  },
+  
+  
+  async handle(handlerInput) {
+    const question = 'what is there to do in '  +
+            Alexa.getSlotValue(handlerInput.requestEnvelope, 'city');
+    location = Alexa.getSlotValue(handlerInput.requestEnvelope, 'city');
+    gptTurboMessage.push({role:"user", content:  question});
+
+  
+  const timeoutId = setTimeout(() => {
+  console.log('API call not completed within 4 seconds. so sending a progressive call ');
+
+    let progressiveApiResponsePromise = axios.post('https://api.amazonalexa.com/v1/directives', request, {
+      headers: {
+        Authorization: `Bearer ${apiAccessToken}`,
+        'Content-Type': 'application/json'
+      }
+    })
+    .then(response => {
+      console.log('Directive sent successfully!');
+    })
+    .catch(error => {
+      console.error('Error sending directive:', error);
+    });
+    
+},4000);
+
+
+   // make a POST API call to the OpenAI GPT-3.5 turbo endpoint
+  const apiUrl = 'https://api.openai.com/v1/chat/completions';
+  const authToken = 'Bearer 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';
+  //const authToken = 'Bearer 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';
+  const requestData = {
+        model : 'gpt-3.5-turbo',
+        messages: gptTurboMessage
+    };
+    
+    let apiResponsePromise = axios.post(apiUrl, requestData, {
+      headers: {
+        Authorization: authToken,
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    //progressive call 
+   
+    // Get the API access token and request ID
+    const apiAccessToken = handlerInput.requestEnvelope.context.System.apiAccessToken;
+    const requestId = handlerInput.requestEnvelope.request.requestId;
+
+   
+    const index_filler = Math.floor(Math.random() * 8);
+    const repromptText = fillers[index_filler];
+    
+   
+   const directive = {
+      type: 'VoicePlayer.Speak',
+      speech: repromptText, //+ '<break time="5s"/>' + 'still looking',
+    };
+    const request = {
+      header: {
+        requestId: requestId
+      },
+      directive: directive
+    };
+
+  try{
+    const apiResponse = await apiResponsePromise;
+    clearTimeout(timeoutId);
+   
+    const finalSpeech = ` ${apiResponse.data.choices[0].message.content}.`;
+    const index2 = Math.floor(Math.random() * 3);
+    gptTurboMessage.push({role:apiResponse.data.choices[0].message.role, content: apiResponse.data.choices[0].message.content});
+    return handlerInput.responseBuilder
+      .speak(finalSpeech)
+      .reprompt(other[index2])
+      .getResponse();
+}
+catch (error){
+    console.error(error);
+    handlerInput.responseBuilder
+      .speak('Something went wrong. I cannot connect to my base.');
+}
+
+  }
+};
+
+
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+const HelpIntentHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'AMAZON.HelpIntent';
+    },
+    handle(handlerInput) {
+        const speakOutput = 'You can say hello to me! How can I help?';
+
+        return handlerInput.responseBuilder
+            .speak(speakOutput)
+            //.reprompt(speakOutput)
+            .getResponse();
+    }
+};
+
+const CancelAndStopIntentHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && (Alexa.getIntentName(handlerInput.requestEnvelope) === 'AMAZON.CancelIntent'
+                || Alexa.getIntentName(handlerInput.requestEnvelope) === 'AMAZON.StopIntent');
+    },
+    handle(handlerInput) {
+        const index_bye = Math.floor(Math.random() * 5);
+        const speakOutput = bye[index_bye];
+
+        return handlerInput.responseBuilder
+            .speak(speakOutput)
+            .getResponse();
+    }
+};
+/* *
+ * FallbackIntent triggers when a customer says something that doesn’t map to any intents in your skill
+ * It must also be defined in the language model (if the locale supports it)
+ * This handler can be safely added but will be ingnored in locales that do not support it yet 
+ * */
+const FallbackIntentHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'AMAZON.FallbackIntent';
+    },
+    handle(handlerInput) {
+        const speakOutput = 'Sorry, I don\'t know about that. Is there something else you would like to know?';
+
+        return handlerInput.responseBuilder
+            .speak(speakOutput)
+            .reprompt(speakOutput)
+            .getResponse();
+    }
+};
+/* *
+ * SessionEndedRequest notifies that a session was ended. This handler will be triggered when a currently open 
+ * session is closed for one of the following reasons: 1) The user says "exit" or "quit". 2) The user does not 
+ * respond or says something that does not match an intent defined in your voice model. 3) An error occurs 
+ * */
+const SessionEndedRequestHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'SessionEndedRequest';
+    },
+    handle(handlerInput) {
+        console.log(`~~~~ Session ended: ${JSON.stringify(handlerInput.requestEnvelope)}`);
+        // Any cleanup logic goes here.
+        return handlerInput.responseBuilder.speak("An error has occured. I cannot reach the model. Please try again!").getResponse(); // notice we send an empty response
+    }
+};
+/* *
+ * The intent reflector is used for interaction model testing and debugging.
+ * It will simply repeat the intent the user said. You can create custom handlers for your intents 
+ * by defining them above, then also adding them to the request handler chain below 
+ * */
+const IntentReflectorHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest';
+    },
+    handle(handlerInput) {
+        const intentName = Alexa.getIntentName(handlerInput.requestEnvelope);
+        const speakOutput = `You just triggered ${intentName}`;
+
+        return handlerInput.responseBuilder
+            .speak(speakOutput)
+            //.reprompt('add a reprompt if you want to keep the session open for the user to respond')
+            .getResponse();
+    }
+};
+/**
+ * Generic error handling to capture any syntax or routing errors. If you receive an error
+ * stating the request handler chain is not found, you have not implemented a handler for
+ * the intent being invoked or included it in the skill builder below 
+ * */
+const ErrorHandler = {
+    canHandle() {
+        return true;
+    },
+    handle(handlerInput, error) {
+        const speakOutput = 'Sorry, I had trouble doing what you asked. Please try again.';
+        console.log(`~~~~ Error handled: ${JSON.stringify(error)}`);
+
+        return handlerInput.responseBuilder
+            .speak(speakOutput)
+            .reprompt(speakOutput)
+            .getResponse();
+    }
+};
+
+
+const DestinationIntentHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'DestinationIntent';
+    },
+    handle(handlerInput) {
+        const speakOutput = 'What type of activity would you like to do?';
+        
+        return handlerInput.responseBuilder
+            .speak(speakOutput)
+            //.reprompt('add a reprompt if you want to keep the session open for the user to respond')
+            .getResponse();
+    }
+};
+
+const FoodIntentHandler = {
+  canHandle(handlerInput) {
+    return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+      && Alexa.getIntentName(handlerInput.requestEnvelope) === 'FoodIntent';
+  },
+  
+  async handle(handlerInput) {
+    const food = Alexa.getSlotValue(handlerInput.requestEnvelope, 'food') || '';
+    const restaurant = Alexa.getSlotValue(handlerInput.requestEnvelope, 'foodestablishment') || '';
+    const question = 'find me ' + food + restaurant + ' food in ' + location;
+    gptTurboMessage.push({role:"user", content:  question});
+
+  
+  const timeoutId = setTimeout(() => {
+  console.log('API call not completed within 4 seconds. so sending a progressive call ');
+
+    let progressiveApiResponsePromise = axios.post('https://api.amazonalexa.com/v1/directives', request, {
+      headers: {
+        Authorization: `Bearer ${apiAccessToken}`,
+        'Content-Type': 'application/json'
+      }
+    })
+    .then(response => {
+      console.log('Directive sent successfully!');
+    })
+    .catch(error => {
+      console.error('Error sending directive:', error);
+    });
+    
+},4000);
+
+
+   // make a POST API call to the OpenAI GPT-3.5 turbo endpoint
+  const apiUrl = 'https://api.openai.com/v1/chat/completions';
+  const authToken = 'Bearer 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';
+  const requestData = {
+        model : 'gpt-3.5-turbo',
+        messages: gptTurboMessage
+    };
+    
+    let apiResponsePromise = axios.post(apiUrl, requestData, {
+      headers: {
+        Authorization: authToken,
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    //progressive call 
+   
+    // Get the API access token and request ID
+    const apiAccessToken = handlerInput.requestEnvelope.context.System.apiAccessToken;
+    const requestId = handlerInput.requestEnvelope.request.requestId;
+
+   
+    const index_filler = Math.floor(Math.random() * 8);
+    const repromptText = fillers[index_filler];
+    
+   
+   const directive = {
+      type: 'VoicePlayer.Speak',
+      speech: repromptText, //+ '<break time="5s"/>' + 'still looking',
+    };
+    const request = {
+      header: {
+        requestId: requestId
+      },
+      directive: directive
+    };
+
+  try{
+    const apiResponse = await apiResponsePromise;
+    clearTimeout(timeoutId);
+   
+    const finalSpeech = ` ${apiResponse.data.choices[0].message.content}.`;
+    const index2 = Math.floor(Math.random() * 3);
+    gptTurboMessage.push({role:apiResponse.data.choices[0].message.role, content: apiResponse.data.choices[0].message.content});
+    return handlerInput.responseBuilder
+      .speak(finalSpeech)
+      .reprompt(other[index2])
+      .getResponse();
+}
+catch (error){
+    console.error(error);
+    handlerInput.responseBuilder
+      .speak('Something went wrong. I cannot connect to my base.');
+}
+
+  }
+};
+
+const ArtIntentHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'ArtIntent';
+    },
+    handle(handlerInput) {
+        const speakOutput = art[Math.floor(Math.random() * art.length)];
+        
+        return handlerInput.responseBuilder
+            .speak(speakOutput)
+            //.reprompt('add a reprompt if you want to keep the session open for the user to respond')
+            .getResponse();
+    }
+};
+
+const TimeIntentHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'TimeIntent';
+    },
+    handle(handlerInput) {
+        const speakOutput = (Math.floor(Math.random() * 8) + 4) + ':00 is the time!';
+        
+        return handlerInput.responseBuilder
+            .speak(speakOutput)
+            //.reprompt('add a reprompt if you want to keep the session open for the user to respond')
+            .getResponse();
+    }
+};
+
+const ReviewIntentHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'ReviewIntent';
+    },
+    handle(handlerInput) {
+        const speakOutput = 'It has a ' + (Math.floor(Math.random() * 3) + 2) + ' out of five star rating!';
+        
+        return handlerInput.responseBuilder
+            .speak(speakOutput)
+            //.reprompt('add a reprompt if you want to keep the session open for the user to respond')
+            .getResponse();
+    }
+};
+
+const LocationIntentHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'LocationIntent';
+    },
+    handle(handlerInput) {
+        location = Alexa.getSlotValue(handlerInput.requestEnvelope, 'location');
+        const speakOutput = 'Okay, I have you located in ' + location + '. Let\'s get started!' ;
+        
+        return handlerInput.responseBuilder
+            .speak(speakOutput)
+            //.reprompt('add a reprompt if you want to keep the session open for the user to respond')
+            .getResponse();
+    }
+};
+
+/**
+ * This handler acts as the entry point for your skill, routing all request and response
+ * payloads to the handlers above. Make sure any new handlers or interceptors you've
+ * defined are included below. The order matters - they're processed top to bottom 
+ * */
+ 
+exports.handler = Alexa.SkillBuilders.custom()
+    .addRequestHandlers(
+        LaunchRequestHandler,
+        TourismIntentHandler,
+        HelpIntentHandler,
+        CancelAndStopIntentHandler,
+        FallbackIntentHandler,
+        SessionEndedRequestHandler,
+        DestinationIntentHandler,
+        FoodIntentHandler,
+        ArtIntentHandler,
+        TimeIntentHandler,
+        ReviewIntentHandler,
+        LocationIntentHandler,
+        IntentReflectorHandler)
+    .addErrorHandlers(
+        ErrorHandler)
+    .withCustomUserAgent('sample/hello-world/v1.2')
+    .lambda();
